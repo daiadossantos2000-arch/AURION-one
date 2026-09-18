@@ -1342,3 +1342,305 @@ AÇÕES DISPONÍVEIS:
 → validar novamente
 
 E o abrir ComfyUI só acontece depois dessa pré-checagem.
+
+============================================================
+AURION ONE — CONTRATO DE IMPLEMENTAÇÃO v2
+============================================================
+
+REGRA ABSOLUTA DE CARREGAMENTO
+------------------------------
+O arquivo FUNCIONANDO.py é a referência operacional do AURION.
+
+AURION_ONE_FUNCIONANDO_v2.py deve preservar o mesmo mecanismo de inicialização
+do FUNCIONANDO.py enquanto novos módulos forem adicionados.
+
+NÃO alterar, substituir ou reescrever o fluxo abaixo durante a integração:
+
+1. imports básicos
+2. definição das constantes PROJECT / MODELS / portas
+3. criação de app = Flask(__name__)
+4. STATE e LOCK
+5. ensure_dirs()
+6. funções utilitárias
+7. funções ComfyUI / Ollama / diagnóstico
+8. rotas Flask existentes
+9. startup()
+10. bloco final if __name__ == "__main__":
+11. app.run(host=HOST, port=PORT, debug=False, threaded=True)
+
+O navegador deve continuar sendo aberto pelo mesmo fluxo do arquivo FUNCIONANDO.py.
+A porta principal continua 127.0.0.1:5000.
+O AURION só deve iniciar módulos adicionais depois que o Flask estiver em condições
+de carregar o painel.
+
+ESTRATÉGIA DE EVOLUÇÃO
+----------------------
+A implementação será incremental e aditiva.
+
+Cada novo módulo deve:
+- ser adicionado sem remover funções existentes;
+- usar nomes próprios e rotas /api/one/... quando possível;
+- tolerar ausência de dependências;
+- nunca impedir o Flask de subir por causa de um serviço opcional;
+- registrar falhas em LOG, STATE e MENTE;
+- possuir fallback seguro;
+- ser testado isoladamente antes de integrar o próximo módulo.
+
+ORDEM DE CARREGAMENTO
+---------------------
+BOOT
+  ↓
+FLASK CORE
+  ↓
+DIAGNÓSTICO BÁSICO
+  ↓
+CORE
+  ↓
+SCANNER
+  ↓
+KNOWLEDGE
+  ↓
+AI
+  ↓
+COMFY
+  ↓
+REPOSITORIES
+  ↓
+MENTE
+  ↓
+INTERFACE / API ONE
+
+Nenhum módulo opcional pode bloquear o BOOT do painel.
+
+CORE
+----
+Responsabilidades:
+- health check
+- process manager
+- dependency manager
+- recuperação segura
+- backup / rollback
+- preflight
+- teste pós-ação
+
+SCANNER
+-------
+Responsabilidades:
+- C: até Z:
+- instalações Python
+- NVIDIA / CUDA
+- ComfyUI
+- custom_nodes
+- checkpoints
+- LoRA
+- VAE
+- ControlNet
+- text encoders
+- GGUF
+- modelos 3D
+- modelos de vídeo
+- cache Hugging Face
+- Ollama
+- Git
+- OpenCode
+
+O scanner deve catalogar primeiro e executar depois.
+
+KNOWLEDGE
+---------
+Estrutura lógica:
+- catálogo
+- dependências
+- workflows
+- erros
+- soluções
+- modelos
+- relações
+
+AI
+--
+O AURION é o orquestrador.
+
+Ollama:
+- agente local
+- modelos instalados
+- seleção de modelo
+
+OpenCode:
+- agente de programação/orquestração
+- configuração externa
+- sem substituir o funcionamento do OpenCode
+
+ComfyUI:
+- executor visual
+
+COMFY
+-----
+Integração direta:
+- /prompt
+- /queue
+- /history
+- /history/{id}
+- /system_stats
+- /ws
+
+Deve existir fallback por polling quando WebSocket não responder.
+
+REPOSITORIES
+-----------
+GitHub:
+- status
+- branch
+- alterações locais
+- origem
+- atualização
+
+Hugging Face:
+- metadados
+- arquivos
+- tamanho
+- formato
+- compatibilidade
+- dry run
+- download
+- validação
+
+Ollama:
+- list
+- show
+- pull
+- status
+
+MENTE
+-----
+A memória operacional deve ser estruturada:
+
+mente/
+├── memoria.jsonl
+├── fatos.jsonl
+├── diagnosticos.jsonl
+├── solucoes.jsonl
+├── modelos.jsonl
+├── workflows.jsonl
+├── dependencias.jsonl
+└── relacoes.jsonl
+
+Toda ação importante deve poder registrar:
+- data
+- ação
+- recurso
+- diagnóstico
+- causa
+- solução
+- resultado
+
+PREFLIGHT
+---------
+Nenhuma operação destrutiva ou de instalação deve ser executada diretamente.
+
+Fluxo:
+
+AÇÃO
+ ↓
+IDENTIFICAR RECURSO
+ ↓
+SCAN
+ ↓
+VERIFICAR CAMINHO
+ ↓
+VERIFICAR DEPENDÊNCIAS
+ ↓
+VERIFICAR VERSÃO
+ ↓
+VERIFICAR GPU / RAM / DISCO
+ ↓
+VERIFICAR CONFLITOS
+ ↓
+BACKUP, SE NECESSÁRIO
+ ↓
+EXECUTAR
+ ↓
+TESTAR
+ ↓
+DIAGNÓSTICO
+ ↓
+CORREÇÃO SEGURA
+ ↓
+RETESTE
+ ↓
+REGISTRAR NA MENTE
+
+MODO "VERIFICAR TUDO"
+----------------------
+O painel deve poder produzir um diagnóstico consolidado:
+
+[OK] Python
+[OK] NVIDIA
+[OK] CUDA
+[OK] ComfyUI
+[OK] API ComfyUI
+[OK] Ollama
+[OK] OpenCode
+[OK] Git
+[OK] Hugging Face
+[OK] modelos
+[OK] workflows
+[OK] custom nodes
+
+Problemas devem aparecer separados dos itens OK.
+
+PRINCÍPIO DE SEGURANÇA OPERACIONAL
+-----------------------------------
+O AURION nunca deve sacrificar o carregamento do painel para adicionar uma função.
+
+Se um módulo falhar:
+- registrar erro;
+- marcar módulo como OFFLINE/ERRO;
+- manter o Flask funcionando;
+- permitir diagnóstico pelo painel;
+- permitir reinicialização do módulo.
+
+PRINCÍPIO DE COMPATIBILIDADE
+----------------------------
+O código novo deve se adaptar à estrutura existente, e não obrigar o
+FUNCIONANDO.py a adotar uma nova arquitetura de inicialização.
+
+A referência de compatibilidade é:
+
+FUNCIONANDO.py
+      ↓
+AURION_ONE_FUNCIONANDO_v2.py
+
+A v2 só pode ser considerada pronta quando:
+- o painel Flask sobe;
+- http://127.0.0.1:5000 abre;
+- o navegador é acionado pelo mesmo fluxo;
+- as rotas antigas continuam presentes;
+- diagnóstico continua funcionando;
+- ComfyUI/Ollama continuam opcionais;
+- módulos ONE podem falhar sem derrubar o painel.
+
+CHECKPOINT DE DESENVOLVIMENTO
+-----------------------------
+Antes de cada alteração:
+1. comparar com FUNCIONANDO.py;
+2. preservar o bloco de inicialização;
+3. adicionar somente o módulo necessário;
+4. testar sintaxe;
+5. verificar rotas;
+6. verificar startup;
+7. só então avançar.
+
+NUNCA transformar AURION_ONE_FUNCIONANDO_v2.py em uma segunda arquitetura
+independente enquanto a estrutura FUNCIONANDO.py estiver sendo usada como
+base de estabilidade.
+
+OBJETIVO FINAL
+--------------
+Construir o AURION ONE completo sobre a base comprovada do AURION DYNAMIC,
+sem quebrar seu carregamento.
+
+FUNCIONANDO primeiro.
+Módulos depois.
+Integração por camadas.
+Teste a cada camada.
