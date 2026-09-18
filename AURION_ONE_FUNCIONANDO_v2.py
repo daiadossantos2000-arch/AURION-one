@@ -1243,7 +1243,48 @@ async function pollImage(pid){for(let i=0;i<1000;i++){try{let d=await (await fet
 function COMFY_VIEW(x){let q=new URLSearchParams({filename:x.filename,subfolder:x.subfolder||'',type:x.type||'output'});return 'http://127.0.0.1:8188/view?'+q.toString()}
 </script></body></html>'''
 
+def startup():
+    """Inicialização segura do AURION ONE sem depender de funções antigas removidas."""
+    ensure_dirs()
+    with LOCK:
+        STATE["startup"] = {"inicio": datetime.now().isoformat(timespec="seconds")}
+    log("AURION ONE iniciando serviços locais...")
+    try:
+        start_ollama()
+    except Exception as e:
+        log(f"Ollama: {e}", True)
+    try:
+        start_comfy()
+    except Exception as e:
+        log(f"ComfyUI: {e}", True)
+    try:
+        start_webui()
+    except Exception as e:
+        log(f"Open WebUI: {e}", True)
+    with LOCK:
+        STATE["startup_done"] = True
+    log("Inicialização do AURION ONE concluída.")
+
 if __name__=="__main__":
-    ensure_dirs(); aurion_one_dirs(); aurion_mind_write("fatos", {"event":"startup","version":AURION_ONE_VERSION}); print("="*72);print(" AURION ONE — FUNCIONANDO");print("="*72);print(f" Base    : {PROJECT}");print(f" Modelos : {MODELS}");print(f" Painel  : http://{HOST}:{PORT}");print("="*72)
-    d=diagnose();print(f"Python  : {d['python']}");print(f"ComfyUI : {d['comfy']['found']} | {d['comfy'].get('path')}");print(f"Ollama  : {d['ollama']['running']} | agente={d['ollama'].get('model')}");print(f"WebUI   : {d['openwebui']['running']}");print(f"NVIDIA  : {len(d['nvidia'].get('gpus',[]))} GPU(s)");print(f"Modelos : {d['models_inventory']['total']} | {d['models_inventory']['size']}");print("="*72)
-    threading.Thread(target=startup,daemon=True).start();threading.Timer(1.2,lambda:webbrowser.open(f"http://{HOST}:{PORT}")).start();app.run(host=HOST,port=PORT,debug=False,threaded=True)
+    ensure_dirs()
+    print("="*72)
+    print(" AURION ONE — FUNCIONANDO")
+    print("="*72)
+    print(f" Base    : {PROJECT}")
+    print(f" Modelos : {MODELS}")
+    print(f" Painel  : http://{HOST}:{PORT}")
+    print("="*72)
+    try:
+        d=diagnose()
+        print(f"Python  : {d['python']}")
+        print(f"ComfyUI : {d['comfy']['found']} | {d['comfy'].get('path')}")
+        print(f"Ollama  : {d['ollama']['running']} | agente={d['ollama'].get('model')}")
+        print(f"WebUI   : {d['openwebui']['running']}")
+        print(f"NVIDIA  : {len(d['nvidia'].get('gpus',[]))} GPU(s)")
+        print(f"Modelos : {d['models_inventory']['total']} | {d['models_inventory']['size']}")
+    except Exception as e:
+        print(f"Diagnóstico inicial: {e}")
+    print("="*72)
+    threading.Thread(target=startup, daemon=True).start()
+    threading.Timer(1.2, lambda:webbrowser.open(f"http://{HOST}:{PORT}")).start()
+    app.run(host=HOST, port=PORT, debug=False, threaded=True)
