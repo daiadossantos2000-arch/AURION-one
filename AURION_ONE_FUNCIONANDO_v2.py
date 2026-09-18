@@ -792,6 +792,147 @@ async function pollImage(pid){for(let i=0;i<1000;i++){try{let d=await (await fet
 function COMFY_VIEW(x){let q=new URLSearchParams({filename:x.filename,subfolder:x.subfolder||'',type:x.type||'output'});return 'http://127.0.0.1:8188/view?'+q.toString()}
 </script></body></html>'''
 
+# =====================================================================
+# AURION ONE — CAMADA DE IMPLEMENTAÇÃO v1
+# Implementação incremental baseada em #MODULO#CODE#ORIGEM.txt.
+# Mantém a base FUNCIONANDO.py, suas rotas e o bloco de inicialização.
+# =====================================================================
+ONE_VERSION="1.0.0"
+ONE_MIND_FILES={k:MENTE_DIR/(k+".jsonl") for k in ("memoria","fatos","diagnosticos","solucoes","modelos","workflows","dependencias","relacoes")}
+ONE_SCAN_REPORT=SCAN_DIR/"aurion_one_catalogo.json"; ONE_SCAN_JSONL=SCAN_DIR/"aurion_one_arquivos.jsonl"; ONE_BACKUP_DIR=PROJECT/"_aurion_backups"; ONE_STATE={"last_verify":None,"last_scan":None,"scan_busy":False}
+
+def one_safe_log(message,error=False):
+    try: log("[AURION ONE] "+str(message),error)
+    except Exception: pass
+
+def one_jsonl(kind,payload):
+    try:
+        ensure_dirs(); p=ONE_MIND_FILES.get(kind,MENTE_DIR/(str(kind)+".jsonl")); p.parent.mkdir(parents=True,exist_ok=True)
+        row={"timestamp":datetime.now().isoformat(timespec="seconds"),"module":"AURION_ONE",**(payload if isinstance(payload,dict) else {"value":payload})}
+        with p.open("a",encoding="utf-8") as f: f.write(json.dumps(row,ensure_ascii=False)+"\n")
+        return True
+    except Exception as e: one_safe_log(f"MENTE/{kind}: {e}",True); return False
+
+def one_processes():
+    rows=[]
+    try:
+        if exists("tasklist"):
+            import csv; q=subprocess.run(["tasklist","/FO","CSV","/NH"],capture_output=True,text=True,timeout=12,encoding="utf-8",errors="ignore")
+            for line in q.stdout.splitlines():
+                try:
+                    c=next(csv.reader([line])); n=c[0] if c else ""
+                    if any(x in n.lower() for x in ("python","ollama","comfy","open-webui","opencode")): rows.append({"name":n,"pid":c[1] if len(c)>1 else ""})
+                except Exception: pass
+    except Exception as e: one_safe_log(f"Process Manager: {e}",True)
+    return rows[:300]
+
+def one_dependency_report():
+    checks=[("Python",sys.executable,["--version"]),("Git",shutil.which("git"),["--version"]),("FFmpeg",shutil.which("ffmpeg"),["-version"]),("7-Zip",shutil.which("7z") or shutil.which("7za"),[]),("Ollama",exe("ollama",[Path(os.environ.get("LOCALAPPDATA",""))/"Programs/Ollama/ollama.exe",Path(r"C:\Program Files\Ollama\ollama.exe")]),["--version"]),("OpenCode",shutil.which("opencode"),["--version"])]
+    out=[]
+    for name,x,args in checks:
+        if not x: out.append({"name":name,"found":False,"version":""}); continue
+        try:
+            q=subprocess.run([str(x)]+args,capture_output=True,text=True,timeout=8,encoding="utf-8",errors="ignore"); o=(q.stdout or q.stderr or "").strip().splitlines()
+            out.append({"name":name,"found":q.returncode==0,"path":str(x),"version":o[0] if o else ""})
+        except Exception as e: out.append({"name":name,"found":False,"path":str(x),"error":str(e)})
+    one_jsonl("dependencias",{"checks":out}); return out
+
+def one_drive_roots():
+    out=[]
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        p=Path(f"{letter}:\\")
+        try:
+            if p.exists(): out.append(p)
+        except Exception: pass
+    return out
+
+def one_scan_drives():
+    if ONE_STATE["scan_busy"]: return {"ok":False,"message":"SCAN C:–Z: já está em execução."}
+    ONE_STATE["scan_busy"]=True
+    try:
+        ensure_dirs(); rows=[]; by_ext={}; by_drive={}; total_bytes=total_files=0; started=time.time()
+        for root in one_drive_roots():
+            drive=str(root)[:2]; by_drive.setdefault(drive,{"arquivos":0,"bytes":0})
+            for cur,dirs,files in os.walk(root,topdown=True):
+                dirs[:]=[d for d in dirs if d not in IGNORE and not d.startswith("$")]
+                for fn in files:
+                    p=Path(cur)/fn
+                    try: size=int(p.stat().st_size)
+                    except (OSError,PermissionError): continue
+                    ext=p.suffix.lower() or "[sem_ext]"; total_files+=1; total_bytes+=size; by_ext.setdefault(ext,{"arquivos":0,"bytes":0}); by_ext[ext]["arquivos"]+=1; by_ext[ext]["bytes"]+=size; by_drive[drive]["arquivos"]+=1; by_drive[drive]["bytes"]+=size
+                    if len(rows)<100000: rows.append({"nome":fn,"caminho":str(p),"ext":ext,"bytes":size,"drive":drive})
+        report={"version":ONE_VERSION,"timestamp":datetime.now().isoformat(timespec="seconds"),"duracao_s":round(time.time()-started,2),"arquivos":total_files,"tamanho_bytes":total_bytes,"tamanho":hsize(total_bytes),"drives":by_drive,"por_tipo":by_ext}
+        ONE_SCAN_REPORT.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+        with ONE_SCAN_JSONL.open("w",encoding="utf-8") as f:
+            for item in rows: f.write(json.dumps(item,ensure_ascii=False)+"\n")
+        ONE_STATE["last_scan"]=report; one_jsonl("fatos",{"tipo":"scan_completo","relatorio":report}); log(f"[AURION ONE] SCAN C:–Z: concluído — {total_files} arquivos"); return {"ok":True,"report":report}
+    except Exception as e: one_safe_log(f"SCAN C:–Z: {type(e).__name__}: {e}",True); return {"ok":False,"message":str(e)}
+    finally: ONE_STATE["scan_busy"]=False
+
+def one_model_catalog():
+    rows=[]
+    try:
+        for p in MODELS.rglob("*"):
+            if p.is_file() and p.suffix.lower() in MODEL_EXT:
+                try: size=p.stat().st_size
+                except OSError: size=0
+                rows.append({"name":p.name,"path":rel(p,MODELS),"ext":p.suffix.lower(),"bytes":size,"size":hsize(size)})
+    except Exception as e: one_safe_log(f"Catálogo de modelos: {e}",True)
+    return {"total":len(rows),"models":rows[:5000]}
+
+def one_preflight():
+    d=diagnose(); c=d.get("comfy",{}); checks=[{"name":"Python","ok":bool(d.get("python"))},{"name":"NVIDIA","ok":bool(d.get("nvidia",{}).get("gpus"))},{"name":"CUDA","ok":bool(d.get("cuda_python",{}).get("ok"))},{"name":"ComfyUI","ok":bool(c.get("found"))},{"name":"API ComfyUI","ok":bool(c.get("running") and comfy_stats() is not None)},{"name":"Ollama","ok":bool(d.get("ollama",{}).get("running"))},{"name":"Git","ok":bool(d.get("tools",{}).get("git"))},{"name":"FFmpeg","ok":bool(d.get("tools",{}).get("ffmpeg"))},{"name":"modelos","ok":True},{"name":"OpenCode","ok":bool(shutil.which("opencode"))}]
+    r={"version":ONE_VERSION,"timestamp":datetime.now().isoformat(timespec="seconds"),"checks":checks,"ok":all(x["ok"] for x in checks if x["name"] in ("Python","Git"))}; ONE_STATE["last_verify"]=r; one_jsonl("diagnosticos",r); return r
+
+def one_backup(paths):
+    ONE_BACKUP_DIR.mkdir(parents=True,exist_ok=True); dest=ONE_BACKUP_DIR/datetime.now().strftime("%Y%m%d_%H%M%S"); dest.mkdir(parents=True,exist_ok=True); copied=[]
+    for raw in paths or []:
+        src=Path(str(raw))
+        if src.exists() and src.is_file():
+            try: target=dest/src.name; shutil.copy2(src,target); copied.append({"source":str(src),"backup":str(target)})
+            except Exception as e: one_safe_log(f"Backup {src}: {e}",True)
+    return {"ok":True,"directory":str(dest),"files":copied}
+
+def one_comfy_snapshot():
+    c=comfy()
+    if not c.get("found"): return {"ok":False,"message":"ComfyUI não encontrado."}
+    root=Path(c["path"]); git=git_status(root); head=""
+    try:
+        if git.get("is_repo"): head=subprocess.run(["git","-C",str(root),"rev-parse","HEAD"],capture_output=True,text=True,timeout=10,encoding="utf-8",errors="ignore").stdout.strip()
+    except Exception: pass
+    snap={"timestamp":datetime.now().isoformat(timespec="seconds"),"path":str(root),"git":git,"head":head,"backup":one_backup([root/"extra_model_paths.yaml"] if (root/"extra_model_paths.yaml").exists() else [])}; one_jsonl("fatos",{"tipo":"comfy_snapshot","snapshot":snap}); return {"ok":True,"snapshot":snap}
+
+def one_verify_all():
+    r=one_preflight(); r["dependencies"]=one_dependency_report(); r["processes"]=one_processes(); r["comfy"]=comfy(); r["ollama_models"]=ollama_models(); r["models"]=one_model_catalog(); r["git"]=[git_status(PROJECT)]; one_jsonl("diagnosticos",{"tipo":"verificar_tudo","resultado":r}); return r
+
+@app.route("/api/one/status")
+def one_status(): return jsonify({"ok":True,"version":ONE_VERSION,"state":ONE_STATE,"mind_files":{k:str(v) for k,v in ONE_MIND_FILES.items()}})
+@app.route("/api/one/verify")
+def one_verify_route(): return jsonify(one_verify_all())
+@app.route("/api/one/processes")
+def one_processes_route(): return jsonify({"ok":True,"processes":one_processes()})
+@app.route("/api/one/dependencies")
+def one_dependencies_route(): return jsonify({"ok":True,"dependencies":one_dependency_report()})
+@app.route("/api/one/scan",methods=["POST"])
+def one_scan_route(): return jsonify(one_scan_drives())
+@app.route("/api/one/scan/report")
+def one_scan_report_route():
+    if not ONE_SCAN_REPORT.exists(): return jsonify({"ok":False,"message":"Nenhum SCAN A:–Z: salvo."}),404
+    try: return jsonify(json.loads(ONE_SCAN_REPORT.read_text(encoding="utf-8")))
+    except Exception as e: return jsonify({"ok":False,"message":str(e)}),500
+@app.route("/api/one/models")
+def one_models_route(): return jsonify(one_model_catalog())
+@app.route("/api/one/comfy/snapshot",methods=["POST"])
+def one_comfy_snapshot_route(): return jsonify(one_comfy_snapshot())
+@app.route("/api/one/backup",methods=["POST"])
+def one_backup_route():
+    data=request.get_json(silent=True) or {}; return jsonify(one_backup(data.get("paths") or []))
+@app.route("/api/one/mind")
+def one_mind_route(): return jsonify({"ok":True,"files":{k:{"path":str(v),"exists":v.exists(),"size":v.stat().st_size if v.exists() else 0} for k,v in ONE_MIND_FILES.items()}})
+# =====================================================================
+# FIM AURION ONE — CAMADA v1
+# =====================================================================
+
 if __name__=="__main__":
     ensure_dirs();print("="*72);print(" AURION — PAINEL LOCAL");print("="*72);print(f" Base    : {PROJECT}");print(f" Modelos : {MODELS}");print(f" Painel  : http://{HOST}:{PORT}");print("="*72)
     d=diagnose();print(f"Python  : {d['python']}");print(f"ComfyUI : {d['comfy']['found']} | {d['comfy'].get('path')}");print(f"Ollama  : {d['ollama']['running']} | agente={d['ollama'].get('model')}");print(f"WebUI   : {d['openwebui']['running']}");print(f"NVIDIA  : {len(d['nvidia'].get('gpus',[]))} GPU(s)");print(f"Modelos : {d['models_inventory']['total']} | {d['models_inventory']['size']}");print("="*72)
